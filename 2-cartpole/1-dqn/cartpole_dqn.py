@@ -11,13 +11,14 @@ from keras.models import Sequential
 EPISODES = 300
 
 
-# this is DQN Agent for the Cartpole
+# DQN Agent for the Cartpole
 # it uses Neural Network to approximate q function
 # and replay memory & target q network
 class DQNAgent:
     def __init__(self, state_size, action_size):
         # if you want to see Cartpole learning, then change to True
-        self.render = True
+        self.render = False
+        self.load_model = False
 
         # get size of state and action
         self.state_size = state_size
@@ -37,17 +38,23 @@ class DQNAgent:
         # create main model and target model
         self.model = self.build_model()
         self.target_model = self.build_model()
-        # copy the model to target model
-        # --> initialize the target model so that the parameters of model & target model to be same
+
+        # initialize target model
         self.update_target_model()
+
+        if self.load_model:
+            self.model.load_weights("./save_model/cartpole_dqn.h5")
 
     # approximate Q function using Neural Network
     # state is input and Q Value of each action is output of network
     def build_model(self):
         model = Sequential()
-        model.add(Dense(24, input_dim=self.state_size, activation='relu', kernel_initializer='he_uniform'))
-        model.add(Dense(24, activation='relu', kernel_initializer='he_uniform'))
-        model.add(Dense(self.action_size, activation='linear', kernel_initializer='he_uniform'))
+        model.add(Dense(24, input_dim=self.state_size, activation='relu',
+                        kernel_initializer='he_uniform'))
+        model.add(Dense(24, activation='relu',
+                        kernel_initializer='he_uniform'))
+        model.add(Dense(self.action_size, activation='linear',
+                        kernel_initializer='he_uniform'))
         model.summary()
         model.compile(loss='mse', optimizer=Adam(lr=self.learning_rate))
         return model
@@ -65,13 +72,13 @@ class DQNAgent:
             return np.argmax(q_value[0])
 
     # save sample <s,a,r,s'> to the replay memory
-    def replay_memory(self, state, action, reward, next_state, done):
+    def append_sample(self, state, action, reward, next_state, done):
         self.memory.append((state, action, reward, next_state, done))
         if self.epsilon > self.epsilon_min:
             self.epsilon *= self.epsilon_decay
 
     # pick samples randomly from replay memory (with batch_size)
-    def train_replay(self):
+    def train_model(self):
         if len(self.memory) < self.train_start:
             return
         batch_size = min(self.batch_size, len(self.memory))
@@ -92,27 +99,20 @@ class DQNAgent:
         target_val = self.target_model.predict(update_target)
 
         for i in range(self.batch_size):
-            # like Q Learning, get maximum Q value at s'
-            # But from target model
+            # Q Learning: get maximum Q value at s' from target model
             if done[i]:
                 target[i][action[i]] = reward[i]
             else:
-                target[i][action[i]] = reward[i] + self.discount_factor * np.amax(target_val[i])
+                target[i][action[i]] = reward[i] + self.discount_factor * (
+                    np.amax(target_val[i]))
 
         # and do the model fit!
-        self.model.fit(update_input, target, batch_size=self.batch_size, epochs=1, verbose=0)
-
-    # load the saved model
-    def load_model(self, name):
-        self.model.load_weights(name)
-
-    # save the model which is under training
-    def save_model(self, name):
-        self.model.save_weights(name)
+        self.model.fit(update_input, target, batch_size=self.batch_size,
+                       epochs=1, verbose=0)
 
 
 if __name__ == "__main__":
-    # In case of CartPole-v1, you can play until 500 time step
+    # In case of CartPole-v1, maximum length of episode is 500
     env = gym.make('CartPole-v1')
     # get size of state and action from environment
     state_size = env.observation_space.shape[0]
@@ -127,7 +127,6 @@ if __name__ == "__main__":
         score = 0
         state = env.reset()
         state = np.reshape(state, [1, state_size])
-        # agent.load_model("./save_model/cartpole_dqn.h5")
 
         while not done:
             if agent.render:
@@ -141,9 +140,9 @@ if __name__ == "__main__":
             reward = reward if not done or score == 499 else -100
 
             # save the sample <s, a, r, s'> to the replay memory
-            agent.replay_memory(state, action, reward, next_state, done)
+            agent.append_sample(state, action, reward, next_state, done)
             # every time step do the training
-            agent.train_replay()
+            agent.train_model()
             score += reward
             state = next_state
 
@@ -155,8 +154,8 @@ if __name__ == "__main__":
                 score = score if score == 500 else score + 100
                 scores.append(score)
                 episodes.append(e)
-                #pylab.plot(episodes, scores, 'b')
-                # pylab.savefig("./save_graph/cartpole_dqn.png")
+                pylab.plot(episodes, scores, 'b')
+                pylab.savefig("./save_graph/cartpole_dqn.png")
                 print("episode:", e, "  score:", score, "  memory length:",
                       len(agent.memory), "  epsilon:", agent.epsilon)
 
@@ -167,4 +166,4 @@ if __name__ == "__main__":
 
         # save the model
         if e % 50 == 0:
-            agent.save_model("./save_model/cartpole_dqn.h5")
+            agent.model.save_weights("./save_model/cartpole_dqn.h5")
